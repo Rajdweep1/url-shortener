@@ -1,0 +1,190 @@
+syntax = "proto3";
+
+package url_shortener.v1;
+
+option go_package = "github.com/rajweepmondal/url-shortener/proto/gen/go/url_shortener/v1;urlshortenerv1";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
+
+// URLShortenerService provides URL shortening and management operations
+service URLShortenerService {
+  // ShortenURL creates a new shortened URL
+  rpc ShortenURL(ShortenURLRequest) returns (ShortenURLResponse);
+  
+  // GetOriginalURL retrieves the original URL for redirection
+  rpc GetOriginalURL(GetOriginalURLRequest) returns (GetOriginalURLResponse);
+  
+  // GetURLInfo retrieves detailed information about a shortened URL
+  rpc GetURLInfo(GetURLInfoRequest) returns (GetURLInfoResponse);
+  
+  // ListURLs retrieves a paginated list of URLs
+  rpc ListURLs(ListURLsRequest) returns (ListURLsResponse);
+  
+  // UpdateURL updates an existing shortened URL
+  rpc UpdateURL(UpdateURLRequest) returns (UpdateURLResponse);
+  
+  // DeleteURL soft deletes a shortened URL
+  rpc DeleteURL(DeleteURLRequest) returns (DeleteURLResponse);
+  
+  // GetAnalytics retrieves analytics data for a URL
+  rpc GetAnalytics(GetAnalyticsRequest) returns (GetAnalyticsResponse);
+  
+  // GetHealthCheck provides service health information
+  rpc GetHealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+// URL represents a shortened URL
+message URL {
+  string id = 1;
+  string short_code = 2;
+  string original_url = 3;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp updated_at = 5;
+  int64 click_count = 6;
+  optional google.protobuf.Timestamp last_accessed_at = 7;
+  optional string custom_alias = 8;
+  optional string user_id = 9;
+  optional google.protobuf.Timestamp expires_at = 10;
+  bool is_active = 11;
+}
+
+// Analytics represents analytics data for a URL access
+message Analytics {
+  string id = 1;
+  string short_code = 2;
+  google.protobuf.Timestamp accessed_at = 3;
+  optional string ip_address = 4;
+  optional string user_agent = 5;
+  optional string referer = 6;
+  optional string country_code = 7;
+  optional string city = 8;
+  optional string device_type = 9;
+}
+
+// ShortenURL request and response
+message ShortenURLRequest {
+  string original_url = 1;
+  optional string custom_alias = 2;
+  optional google.protobuf.Duration expires_in = 3;
+  optional string user_id = 4;
+}
+
+message ShortenURLResponse {
+  URL url = 1;
+  string short_url = 2;
+}
+
+// GetOriginalURL request and response
+message GetOriginalURLRequest {
+  string short_code = 1;
+  optional string ip_address = 2;
+  optional string user_agent = 3;
+  optional string referer = 4;
+}
+
+message GetOriginalURLResponse {
+  string original_url = 1;
+  bool is_expired = 2;
+  bool is_active = 3;
+}
+
+// GetURLInfo request and response
+message GetURLInfoRequest {
+  string short_code = 1;
+  optional string user_id = 2;
+}
+
+message GetURLInfoResponse {
+  URL url = 1;
+}
+
+// ListURLs request and response
+message ListURLsRequest {
+  optional string user_id = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+  string sort_by = 4;
+  bool sort_desc = 5;
+}
+
+message ListURLsResponse {
+  repeated URL urls = 1;
+  int64 total_count = 2;
+  int32 total_pages = 3;
+  int32 page = 4;
+  int32 page_size = 5;
+}
+
+// UpdateURL request and response
+message UpdateURLRequest {
+  string short_code = 1;
+  optional string original_url = 2;
+  optional string custom_alias = 3;
+  optional google.protobuf.Timestamp expires_at = 4;
+  optional bool is_active = 5;
+  optional string user_id = 6;
+}
+
+message UpdateURLResponse {
+  URL url = 1;
+}
+
+// DeleteURL request and response
+message DeleteURLRequest {
+  string short_code = 1;
+  optional string user_id = 2;
+}
+
+message DeleteURLResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// GetAnalytics request and response
+message GetAnalyticsRequest {
+  string short_code = 1;
+  optional google.protobuf.Timestamp from_date = 2;
+  optional google.protobuf.Timestamp to_date = 3;
+  optional string user_id = 4;
+}
+
+message GetAnalyticsResponse {
+  URLStats stats = 1;
+  repeated DailyStats daily_stats = 2;
+  repeated Analytics recent_accesses = 3;
+}
+
+// URLStats represents comprehensive statistics for a URL
+message URLStats {
+  URL url = 1;
+  int64 total_clicks = 2;
+  int64 unique_clicks = 3;
+  int64 clicks_today = 4;
+  int64 clicks_this_week = 5;
+  repeated string top_countries = 6;
+  repeated string top_referers = 7;
+}
+
+// DailyStats represents daily click statistics
+message DailyStats {
+  google.protobuf.Timestamp date = 1;
+  int64 clicks = 2;
+}
+
+// HealthCheck request and response
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+  string status = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  string version = 3;
+  map<string, string> dependencies = 4;
+}
+
+// Error response for all operations
+message ErrorResponse {
+  string code = 1;
+  string message = 2;
+  optional string details = 3;
+}

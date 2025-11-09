@@ -52,7 +52,10 @@ vet: ## Run go vet
 
 proto: ## Generate protobuf code
 	@echo "Generating protobuf code..."
-	@protoc --go_out=. --go-grpc_out=. $(PROTO_DIR)/*.proto
+	@protoc --go_out=. --go-grpc_out=. \
+		--plugin=protoc-gen-go=$(GOPATH)/bin/protoc-gen-go \
+		--plugin=protoc-gen-go-grpc=$(GOPATH)/bin/protoc-gen-go-grpc \
+		$(PROTO_DIR)/*.proto
 
 migrate-up: ## Run database migrations up
 	@echo "Running migrations up..."
