@@ -93,6 +93,7 @@ go mod tidy
 
 ### Development
 
+#### Option 1: Local Development
 1. Start services with Docker Compose:
 ```bash
 docker-compose up -d postgres redis
@@ -108,6 +109,36 @@ make migrate-up
 go run cmd/server/main.go
 ```
 
+#### Option 2: Full Docker Development
+1. Start all services with Docker Compose:
+```bash
+docker-compose up --build
+```
+
+This will start PostgreSQL, Redis, and the application in containers.
+
+### Production Deployment
+
+#### Using Docker Compose (Recommended)
+1. Copy production environment file:
+```bash
+cp .env.prod.example .env.prod
+# Edit .env.prod with your production values
+```
+
+2. Start production services:
+```bash
+docker-compose -f docker-compose.prod.yml up -d
+```
+
+#### Using Pre-built Image
+```bash
+docker run -p 8080:8080 \
+  -e DATABASE_POSTGRES_URL="your-db-url" \
+  -e REDIS_URL="your-redis-url" \
+  rajdweep1/url-shortener:latest
+```
+
 ### Testing
 
 ```bash
@@ -119,6 +150,53 @@ make test-coverage
 
 # Run integration tests
 make test-integration
+```
+
+## Docker Commands
+
+### Building Images
+```bash
+# Build Docker image
+make docker-build
+
+# Build and push to registry
+make docker-build-push
+
+# Build specific version
+./scripts/docker-build.sh v1.0.0
+
+# Build and push specific version
+./scripts/docker-build.sh v1.0.0 --push
+```
+
+### Running with Docker
+```bash
+# Development environment
+make docker-run
+
+# Production environment
+make docker-run-prod
+
+# View logs
+make docker-logs
+
+# Stop services
+make docker-down
+```
+
+### Manual Docker Commands
+```bash
+# Build image manually
+docker build -t url-shortener:latest .
+
+# Run single container
+docker run -p 8080:8080 url-shortener:latest
+
+# Run with environment variables
+docker run -p 8080:8080 \
+  -e DATABASE_POSTGRES_URL="postgres://user:pass@host:5432/db" \
+  -e REDIS_URL="redis://host:6379/0" \
+  url-shortener:latest
 ```
 
 ## Configuration

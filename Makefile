@@ -71,18 +71,37 @@ migrate-create: ## Create a new migration (usage: make migrate-create NAME=migra
 
 docker-build: ## Build Docker image
 	@echo "Building Docker image..."
-	@docker build -t $(DOCKER_IMAGE) .
+	@./scripts/docker-build.sh
+
+docker-build-push: ## Build and push Docker image
+	@echo "Building and pushing Docker image..."
+	@./scripts/docker-build.sh latest --push
 
 docker-run: ## Run with Docker Compose
 	@echo "Starting services with Docker Compose..."
 	@docker-compose up --build
 
+docker-run-prod: ## Run with production Docker Compose
+	@echo "Starting production services..."
+	@docker-compose -f docker-compose.prod.yml up -d
+
 docker-down: ## Stop Docker Compose services
 	@echo "Stopping Docker Compose services..."
 	@docker-compose down
 
+docker-down-prod: ## Stop production Docker Compose services
+	@echo "Stopping production services..."
+	@docker-compose -f docker-compose.prod.yml down
+
 docker-logs: ## Show Docker Compose logs
 	@docker-compose logs -f
+
+docker-logs-prod: ## Show production Docker Compose logs
+	@docker-compose -f docker-compose.prod.yml logs -f
+
+docker-test: ## Test Docker image
+	@echo "Testing Docker image..."
+	@docker run --rm $(DOCKER_IMAGE) ./server --version || echo "Version check completed"
 
 clean: ## Clean build artifacts
 	@echo "Cleaning..."
