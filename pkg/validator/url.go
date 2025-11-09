@@ -15,12 +15,10 @@ const (
 )
 
 var (
-	// Common URL schemes that we support
+	// Common URL schemes that we support (only HTTP/HTTPS for security)
 	supportedSchemes = map[string]bool{
 		"http":  true,
 		"https": true,
-		"ftp":   true,
-		"ftps":  true,
 	}
 	
 	// Regex for validating custom aliases (alphanumeric, hyphens, underscores)

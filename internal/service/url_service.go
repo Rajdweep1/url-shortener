@@ -135,15 +135,44 @@ func (s *URLService) ShortenURL(ctx context.Context, req *models.CreateURLReques
 
 // GetOriginalURL retrieves the original URL for redirection
 func (s *URLService) GetOriginalURL(ctx context.Context, shortCode string, clientInfo *ClientInfo) (string, error) {
-	// Validate short code format
-	if !shortener.IsValidShortCode(shortCode) {
+	// Validate short code format (allow both generated codes and custom aliases)
+	if !s.isValidShortCodeOrAlias(shortCode) {
 		return "", models.ErrInvalidShortCode
 	}
 
-	// Try to get from cache first
-	if cachedURL, err := s.getCachedURL(ctx, shortCode); err == nil && cachedURL != "" {
-		// Record analytics asynchronously
+	// Try to get from cache first, but we still need to check expiration from database
+	cachedURL, cacheErr := s.getCachedURL(ctx, shortCode)
+	if cacheErr == nil && cachedURL != "" {
+		// We have a cached URL, but we still need to check if it's expired
+		// Get the URL from database to check expiration and active status
+		url, err := s.urlRepo.GetByShortCode(ctx, shortCode)
+		if err != nil {
+			// If URL not found in DB, invalidate cache and return error
+			go s.invalidateCache(context.Background(), shortCode)
+			return "", err
+		}
+
+		// Check if URL is expired
+		if url.IsExpired() {
+			// Invalidate cache for expired URL
+			go s.invalidateCache(context.Background(), shortCode)
+			return "", models.ErrURLExpired
+		}
+
+		// Check if URL is active
+		if !url.IsActive {
+			// Invalidate cache for inactive URL
+			go s.invalidateCache(context.Background(), shortCode)
+			return "", models.ErrURLInactive
+		}
+
+		// URL is valid, use cached version and record analytics
 		go s.recordAccess(context.Background(), shortCode, clientInfo)
+		go func() {
+			bgCtx := context.Background()
+			s.urlRepo.IncrementClickCount(bgCtx, shortCode)
+			s.urlRepo.UpdateLastAccessed(bgCtx, shortCode)
+		}()
 		return cachedURL, nil
 	}
 
@@ -272,8 +301,8 @@ func (s *URLService) UpdateURL(ctx context.Context, shortCode string, updates *m
 		return nil, err
 	}
 
-	// Invalidate cache
-	go s.invalidateCache(context.Background(), shortCode)
+	// Invalidate cache synchronously to ensure consistency
+	s.invalidateCache(ctx, shortCode)
 
 	return existingURL, nil
 }
@@ -296,8 +325,8 @@ func (s *URLService) DeleteURL(ctx context.Context, shortCode string, userID *st
 		return err
 	}
 
-	// Invalidate cache
-	go s.invalidateCache(context.Background(), shortCode)
+	// Invalidate cache synchronously to ensure consistency
+	s.invalidateCache(ctx, shortCode)
 
 	return nil
 }
@@ -325,6 +354,30 @@ func (s *URLService) GetAnalytics(ctx context.Context, shortCode string, from, t
 }
 
 // Helper methods
+
+// isValidShortCodeOrAlias validates both generated short codes and custom aliases
+func (s *URLService) isValidShortCodeOrAlias(code string) bool {
+	// Check if it's a valid generated short code (base62)
+	if shortener.IsValidShortCode(code) {
+		return true
+	}
+
+	// Check if it's a valid custom alias (alphanumeric + dashes + underscores)
+	if len(code) < 3 || len(code) > 50 {
+		return false
+	}
+
+	for _, char := range code {
+		if !((char >= '0' && char <= '9') ||
+			(char >= 'a' && char <= 'z') ||
+			(char >= 'A' && char <= 'Z') ||
+			char == '-' || char == '_') {
+			return false
+		}
+	}
+
+	return true
+}
 
 // cacheURL caches a URL in Redis
 func (s *URLService) cacheURL(ctx context.Context, url *models.URL) error {
