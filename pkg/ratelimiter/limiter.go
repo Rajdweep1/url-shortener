@@ -58,18 +58,12 @@ func (rl *RateLimiter) Allow(ctx context.Context, key string) (bool, error) {
 
 // allowFixedWindow implements fixed window rate limiting
 func (rl *RateLimiter) allowFixedWindow(ctx context.Context, key string) (bool, error) {
-	if rateLimitRepo, ok := rl.repo.(*interfaces.RateLimitRepository); ok {
-		// This is a type assertion that won't work as expected
-		// We need to add the method to the interface or use a different approach
-		_ = rateLimitRepo
-	}
-	
-	// For now, use the basic increment method
+	// Use the basic increment method
 	count, err := rl.repo.IncrementRateLimit(ctx, key, rl.config.Window)
 	if err != nil {
 		return false, fmt.Errorf("failed to check fixed window rate limit: %w", err)
 	}
-	
+
 	return count <= rl.config.Limit, nil
 }
 
