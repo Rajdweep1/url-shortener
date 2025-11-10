@@ -45,9 +45,9 @@ jobs:
         version: "2023.1.6"
 
     - name: Run gosec security scanner
-      uses: securecodewarrior/github-action-gosec@master
-      with:
-        args: './...'
+      run: |
+        go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest
+        gosec ./...
 
     - name: Run golangci-lint
       uses: golangci/golangci-lint-action@v3
@@ -92,7 +92,7 @@ jobs:
         name: codecov-umbrella
 
     - name: Upload coverage artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: coverage-report
         path: |
