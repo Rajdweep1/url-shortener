@@ -120,7 +120,7 @@ jobs:
         fi
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v5
       with:
         name: release-artifacts-${{ matrix.os }}-${{ matrix.arch }}
         path: dist/
