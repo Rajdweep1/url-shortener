@@ -124,7 +124,7 @@ func ErrExternal(message string, cause error) *AppError {
 // Specific domain errors
 var (
 	ErrURLNotFound = ErrNotFound("URL not found")
-	ErrURLExpired  = ErrNotFound("URL has expired")
+	ErrURLExpired  = NewAppError(ErrCodeNotFound, "URL has expired", http.StatusGone)
 	ErrURLInactive = ErrNotFound("URL is inactive")
 	
 	ErrInvalidURL        = ErrValidation("Invalid URL format")

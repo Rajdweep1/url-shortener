@@ -55,12 +55,32 @@ func (s *URLService) ShortenURL(ctx context.Context, req *models.CreateURLReques
 		if err := validator.ValidateCustomAlias(*req.CustomAlias); err != nil {
 			return nil, "", models.ErrValidation(err.Error())
 		}
+
+		// Check if custom alias already exists
+		_, err := s.urlRepo.GetByShortCode(ctx, *req.CustomAlias)
+		if err == nil {
+			// Custom alias already exists
+			return nil, "", models.ErrCustomAliasExists
+		}
+		if err != models.ErrURLNotFound {
+			return nil, "", models.ErrInternal("failed to check custom alias uniqueness")
+		}
 	}
 
 	// Check if URL already exists (idempotency)
 	existingURL, err := s.urlRepo.GetByOriginalURL(ctx, req.OriginalURL, req.UserID)
 	if err == nil && existingURL != nil && !existingURL.IsExpired() {
-		// Return existing URL
+		// If custom alias is provided, check if it matches the existing URL's alias
+		if req.CustomAlias != nil {
+			if existingURL.CustomAlias == nil || *existingURL.CustomAlias != *req.CustomAlias {
+				// Different custom alias for same URL - this is a conflict
+				return nil, "", models.ErrConflict("URL already exists with different custom alias")
+			}
+		} else if existingURL.CustomAlias != nil {
+			// Existing URL has custom alias but new request doesn't - this is a conflict
+			return nil, "", models.ErrConflict("URL already exists with custom alias")
+		}
+		// Custom aliases match (or both are nil) - return existing URL
 		shortURL := fmt.Sprintf("%s/%s", s.baseURL, existingURL.ShortCode)
 		return existingURL, shortURL, nil
 	}
@@ -90,6 +110,7 @@ func (s *URLService) ShortenURL(ctx context.Context, req *models.CreateURLReques
 		if err != nil {
 			return nil, "", models.ErrValidation(err.Error())
 		}
+
 		shortCode = customCode
 		url.CustomAlias = req.CustomAlias
 	} else {
@@ -293,8 +314,55 @@ func (s *URLService) UpdateURL(ctx context.Context, shortCode string, updates *m
 		existingURL.ExpiresAt = updates.ExpiresAt
 	}
 
-	// Update active status if provided
-	existingURL.IsActive = updates.IsActive
+	// Save changes
+	if err := s.urlRepo.Update(ctx, existingURL); err != nil {
+		return nil, err
+	}
+
+	// Invalidate cache synchronously to ensure consistency
+	s.invalidateCache(ctx, shortCode)
+
+	return existingURL, nil
+}
+
+// UpdateURLWithActiveStatus updates an existing URL with optional active status
+func (s *URLService) UpdateURLWithActiveStatus(ctx context.Context, shortCode string, updates *models.URL, isActive *bool, userID *string) (*models.URL, error) {
+	// Get existing URL
+	existingURL, err := s.urlRepo.GetByShortCode(ctx, shortCode)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check user authorization
+	if userID != nil && existingURL.UserID != nil && *existingURL.UserID != *userID {
+		return nil, models.ErrForbidden("access denied")
+	}
+
+	// Validate new original URL if provided
+	if updates.OriginalURL != "" && updates.OriginalURL != existingURL.OriginalURL {
+		if err := s.validator.ValidateURL(updates.OriginalURL); err != nil {
+			return nil, models.ErrValidation(err.Error())
+		}
+		existingURL.OriginalURL = updates.OriginalURL
+	}
+
+	// Update custom alias if provided
+	if updates.CustomAlias != nil {
+		if err := validator.ValidateCustomAlias(*updates.CustomAlias); err != nil {
+			return nil, models.ErrValidation(err.Error())
+		}
+		existingURL.CustomAlias = updates.CustomAlias
+	}
+
+	// Update expiration if provided
+	if updates.ExpiresAt != nil {
+		existingURL.ExpiresAt = updates.ExpiresAt
+	}
+
+	// Update active status only if explicitly provided
+	if isActive != nil {
+		existingURL.IsActive = *isActive
+	}
 
 	// Save changes
 	if err := s.urlRepo.Update(ctx, existingURL); err != nil {

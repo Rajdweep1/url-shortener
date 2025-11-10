@@ -91,7 +91,12 @@ func (v *URLValidator) ValidateURL(rawURL string) error {
 	if err := v.validateHost(parsedURL.Host); err != nil {
 		return err
 	}
-	
+
+	// Check for malformed domain patterns
+	if err := v.validateDomainFormat(parsedURL.Host); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -179,4 +184,32 @@ func SanitizeURL(rawURL string) string {
 	}
 	
 	return rawURL
+}
+
+// validateDomainFormat checks for malformed domain patterns
+func (v *URLValidator) validateDomainFormat(host string) error {
+	// Remove port if present
+	if colonIndex := strings.LastIndex(host, ":"); colonIndex != -1 {
+		host = host[:colonIndex]
+	}
+
+	// Check for consecutive dots
+	if strings.Contains(host, "..") {
+		return fmt.Errorf("invalid domain format: consecutive dots not allowed")
+	}
+
+	// Check for leading or trailing dots
+	if strings.HasPrefix(host, ".") || strings.HasSuffix(host, ".") {
+		return fmt.Errorf("invalid domain format: domain cannot start or end with dot")
+	}
+
+	// Check for empty labels (e.g., "example..com" would have an empty label)
+	labels := strings.Split(host, ".")
+	for _, label := range labels {
+		if label == "" {
+			return fmt.Errorf("invalid domain format: empty domain label")
+		}
+	}
+
+	return nil
 }
