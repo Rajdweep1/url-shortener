@@ -8,7 +8,8 @@ services:
       dockerfile: Dockerfile
     container_name: url-shortener-app
     ports:
-      - "8080:8080"
+      - "8080:8080"  # gRPC API
+      - "8081:8081"  # HTTP/REST API
     environment:
       # Database Configuration
       DATABASE_POSTGRES_URL: postgres://user:password@postgres:5432/url_shortener?sslmode=disable
@@ -43,8 +44,17 @@ services:
       APP_CACHE_TTL: 1h
 
       # Logging Configuration
-      LOG_LEVEL: info
+      LOG_LEVEL: debug
       LOG_FORMAT: json
+
+      # Authentication Configuration
+      AUTH_JWT_SECRET: your-super-secret-jwt-key-change-this-in-production
+      AUTH_JWT_DURATION: 24h
+      AUTH_JWT_ISSUER: url-shortener
+      AUTH_ADMIN_API_KEY: usk_admin_key_change_this_in_production
+      AUTH_ENABLE_JWT: true
+      AUTH_ENABLE_API_KEY: true
+      AUTH_REQUIRE_AUTH: false
     depends_on:
       postgres:
         condition: service_healthy

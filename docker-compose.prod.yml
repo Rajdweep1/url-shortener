@@ -6,7 +6,8 @@ services:
     image: rajdweep1/url-shortener:latest
     container_name: url-shortener-app-prod
     ports:
-      - "8080:8080"
+      - "8080:8080"  # gRPC API
+      - "8081:8081"  # HTTP/REST API
     env_file:
       - .env.prod
     depends_on:
