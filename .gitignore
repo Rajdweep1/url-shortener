@@ -65,8 +65,8 @@ temp/
 *.sqlite
 *.sqlite3
 
-# Generated files
-*.pb.go
+# Generated files (exclude our proto generated files from this rule)
+# *.pb.go  # Commented out to allow proto/gen/**/*.pb.go files
 *_pb2.py
 *_pb2_grpc.py
 
