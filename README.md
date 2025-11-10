@@ -14,6 +14,8 @@ A production-ready URL shortener service built with Go, gRPC, PostgreSQL, and Re
 - 📈 Prometheus metrics
 - 🔍 Structured logging
 - ✅ Comprehensive testing
+- 🔄 Complete CI/CD pipeline with GitHub Actions
+- 🔒 Automated security scanning and vulnerability detection
 
 ## Architecture
 
@@ -264,6 +266,31 @@ The service exposes both gRPC and REST APIs. See `proto/` directory for Protocol
 3. Make your changes
 4. Add tests
 5. Submit a pull request
+
+## CI/CD Pipeline
+
+### 🔄 Automated Workflows
+- **Continuous Integration**: Code quality, testing, security scanning
+- **Continuous Deployment**: Automated staging and production deployments
+- **Security Pipeline**: Daily vulnerability scans, secret detection
+- **Release Management**: Automated releases with multi-platform binaries
+- **Dependency Updates**: Automated updates via Dependabot
+
+### 🛡️ Quality Gates
+- **Code Quality**: 30+ linters with golangci-lint
+- **Security**: Multiple scanners (Trivy, Snyk, gosec, CodeQL)
+- **Testing**: Unit, integration, and performance tests
+- **Coverage**: Automated coverage reporting to Codecov
+- **Performance**: Automated performance validation
+
+### 📋 Pipeline Status
+- ✅ **CI Pipeline**: Comprehensive testing and quality checks
+- ✅ **Security Scanning**: Daily automated vulnerability detection
+- ✅ **Docker Publishing**: Multi-architecture image builds
+- ✅ **Release Automation**: Tag-based releases with binaries
+- ✅ **Dependency Management**: Automated security updates
+
+For detailed CI/CD documentation, see [docs/CICD.md](docs/CICD.md).
 
 ## License
 
