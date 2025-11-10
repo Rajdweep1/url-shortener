@@ -31,6 +31,28 @@ A production-ready URL shortener service built with Go, gRPC, PostgreSQL, and Re
                    └─────────────┘    └─────────────┘
 ```
 
+## URL Shortening Algorithm
+
+### Core Algorithm
+- **Base62 Encoding**: Uses characters `0-9`, `a-z`, `A-Z` for URL-safe short codes
+- **Deterministic Generation**: Same URL always produces the same short code (idempotency)
+- **SHA256 Hashing**: Original URL is hashed for consistent short code generation
+- **Collision Handling**: Multi-attempt retry mechanism with fallback strategies
+
+### Short Code Generation Process
+1. **Input Validation**: Validate and normalize the original URL
+2. **Duplicate Check**: Check if URL already exists (idempotency)
+3. **Hash Generation**: Create SHA256 hash of the original URL
+4. **Base62 Encoding**: Convert hash to Base62 for short code
+5. **Collision Detection**: Check if short code already exists
+6. **Retry Logic**: If collision, append attempt number and retry
+7. **Database Storage**: Store the URL mapping with metadata
+
+### Performance Optimizations
+- **Redis Caching**: Short codes cached for sub-10ms redirects
+- **Database Indexing**: Optimized indexes for fast lookups
+- **Connection Pooling**: Efficient database connection management
+
 ## Tech Stack
 
 - **Language**: Go 1.21+
@@ -202,6 +224,45 @@ docker run -p 8080:8080 \
   url-shortener:latest
 ```
 
+## Database Schema
+
+### URLs Table
+```sql
+CREATE TABLE urls (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    short_code VARCHAR(255) UNIQUE NOT NULL,
+    original_url TEXT NOT NULL,
+    custom_alias VARCHAR(255),
+    user_id VARCHAR(255),
+    click_count BIGINT DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    expires_at TIMESTAMP WITH TIME ZONE,
+    last_accessed_at TIMESTAMP WITH TIME ZONE,
+    is_active BOOLEAN DEFAULT true
+);
+```
+
+### Analytics Table
+```sql
+CREATE TABLE analytics (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    url_id UUID REFERENCES urls(id) ON DELETE CASCADE,
+    ip_address INET,
+    user_agent TEXT,
+    referer TEXT,
+    country VARCHAR(2),
+    city VARCHAR(255),
+    clicked_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+```
+
+### Indexes
+- `idx_urls_short_code` - Fast lookups by short code
+- `idx_urls_user_id` - User's URLs listing
+- `idx_urls_created_at` - Chronological ordering
+- `idx_analytics_url_id` - Analytics aggregation
+
 ## Configuration
 
 The application uses environment variables for configuration. See `.env.example` for all available options.
@@ -213,6 +274,69 @@ Key configuration sections:
 - **Application**: URL length, rate limits, cache TTL
 - **Authentication**: JWT secrets, API keys, auth settings
 - **Logging**: Level and format
+
+## Security Features
+
+### Input Validation & Sanitization
+- **URL Validation**: Comprehensive URL format and scheme validation
+- **SSRF Protection**: Prevents Server-Side Request Forgery attacks
+- **Input Sanitization**: Malicious pattern detection and filtering
+- **Length Limits**: Configurable URL length restrictions
+
+### Authentication & Authorization
+- **JWT Tokens**: Secure token-based authentication
+- **API Keys**: Long-lived API key authentication
+- **Role-Based Access**: Admin and user role separation
+- **Token Expiration**: Configurable token lifetimes
+
+### Rate Limiting & DDoS Protection
+- **Per-IP Rate Limiting**: Configurable request limits per IP
+- **Sliding Window**: Advanced rate limiting algorithm
+- **Redis-Based**: Distributed rate limiting across instances
+
+### Infrastructure Security
+- **HTTPS Support**: TLS encryption for all communications
+- **Security Headers**: Comprehensive HTTP security headers
+- **Container Security**: Non-root user, minimal attack surface
+- **Secrets Management**: Environment-based secret configuration
+
+### Monitoring & Auditing
+- **Access Logging**: Detailed request/response logging
+- **Analytics Tracking**: Click tracking with IP and user agent
+- **Health Monitoring**: Comprehensive health checks
+- **Error Tracking**: Structured error logging and monitoring
+
+## Monitoring & Observability
+
+### Health Checks
+```bash
+# Application health
+curl http://localhost:8081/health
+
+# Database connectivity
+curl http://localhost:8081/health/db
+
+# Redis connectivity
+curl http://localhost:8081/health/cache
+```
+
+### Metrics & Monitoring
+- **Prometheus Metrics**: Application and system metrics
+- **Grafana Dashboards**: Visual monitoring and alerting
+- **Custom Metrics**: URL creation rate, redirect performance, error rates
+- **Resource Monitoring**: CPU, memory, disk, network usage
+
+### Logging
+- **Structured Logging**: JSON format with Zap logger
+- **Log Levels**: Configurable logging levels (debug, info, warn, error)
+- **Request Tracing**: Unique request IDs for distributed tracing
+- **Performance Logging**: Response times and database query metrics
+
+### Alerting
+- **Health Check Alerts**: Service availability monitoring
+- **Performance Alerts**: Response time threshold alerts
+- **Error Rate Alerts**: High error rate notifications
+- **Resource Alerts**: CPU/memory usage thresholds
 
 ## Authentication
 
@@ -323,14 +447,113 @@ curl -X POST http://localhost:8081/api/v1/urls \
   -d '{"original_url": "https://www.google.com"}'
 ```
 
-### Access Short URL
-```bash
-curl -L http://localhost:8081/{short_code}
+**Response:**
+```json
+{
+  "url": {
+    "id": "uuid-here",
+    "short_code": "abc123",
+    "original_url": "https://www.google.com",
+    "created_at": "2025-11-10T12:00:00Z",
+    "click_count": 0,
+    "is_active": true
+  },
+  "short_url": "http://localhost:8080/abc123"
+}
 ```
 
-### Get Analytics
+### Access Short URL (Redirect)
 ```bash
-curl http://localhost:8081/api/v1/urls/{short_code}/analytics
+curl -L http://localhost:8081/abc123
+# Returns HTTP 302 redirect to https://www.google.com
+```
+
+### Get URL Information
+```bash
+curl http://localhost:8081/api/v1/urls/abc123
+```
+
+### List URLs with Pagination
+```bash
+curl "http://localhost:8081/api/v1/urls?page=1&page_size=10"
+```
+
+### Health Check
+```bash
+curl http://localhost:8081/health
 ```
 
 For detailed API examples, see [docs/API_EXAMPLES.md](docs/API_EXAMPLES.md)
+
+## Troubleshooting
+
+### Common Issues
+
+#### 1. Service Won't Start
+```bash
+# Check if ports are already in use
+lsof -i :8080 -i :8081
+
+# Check Docker containers
+docker-compose ps
+
+# View logs
+docker-compose logs app
+```
+
+#### 2. Database Connection Issues
+```bash
+# Check PostgreSQL connection
+docker-compose logs postgres
+
+# Test database connectivity
+docker exec -it url-shortener-postgres psql -U user -d url_shortener -c "SELECT 1;"
+```
+
+#### 3. Redis Connection Issues
+```bash
+# Check Redis connection
+docker-compose logs redis
+
+# Test Redis connectivity
+docker exec -it url-shortener-redis redis-cli ping
+```
+
+#### 4. Performance Issues
+```bash
+# Check resource usage
+docker stats
+
+# Monitor application logs
+docker-compose logs -f app
+
+# Test performance
+./scripts/test-performance-simple.sh
+```
+
+### Environment Variables
+
+Make sure these essential environment variables are set:
+
+```bash
+# Database
+DATABASE_POSTGRES_URL=postgres://user:password@localhost:5432/url_shortener?sslmode=disable
+
+# Redis
+REDIS_URL=redis://localhost:6379/0
+
+# Server
+SERVER_PORT=8080
+APP_BASE_URL=http://localhost:8080
+
+# Authentication (optional)
+AUTH_JWT_SECRET=your-secret-key
+AUTH_ADMIN_API_KEY=your-admin-key
+```
+
+### Getting Help
+
+1. Check the [docs/](docs/) directory for detailed documentation
+2. Review the [API examples](docs/API_EXAMPLES.md)
+3. Check [GitHub Issues](https://github.com/rajweepmondal/url-shortener/issues)
+4. Run the test suite: `make test`

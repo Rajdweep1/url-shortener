@@ -247,6 +247,7 @@ func TestURLService_ShortenURL_CustomAlias(t *testing.T) {
 
 	// Mock expectations
 	mockURLRepo.On("GetByOriginalURL", ctx, req.OriginalURL, req.UserID).Return(nil, models.ErrURLNotFound)
+	mockURLRepo.On("GetByShortCode", ctx, customAlias).Return(nil, models.ErrURLNotFound) // Check custom alias availability
 	mockURLRepo.On("Create", ctx, mock.AnythingOfType("*models.URL")).Return(nil)
 	mockCacheRepo.On("Set", ctx, mock.AnythingOfType("string"), req.OriginalURL, 5*time.Minute).Return(nil)
 
