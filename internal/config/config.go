@@ -13,6 +13,7 @@ type Config struct {
 	Redis    RedisConfig    `envconfig:"REDIS"`
 	App      AppConfig      `envconfig:"APP"`
 	Log      LogConfig      `envconfig:"LOG"`
+	Auth     AuthConfig     `envconfig:"AUTH"`
 }
 
 // ServerConfig holds server-related configuration
@@ -59,6 +60,17 @@ type AppConfig struct {
 type LogConfig struct {
 	Level  string `envconfig:"LEVEL" default:"info"`
 	Format string `envconfig:"FORMAT" default:"json"` // json or console
+}
+
+// AuthConfig holds authentication configuration
+type AuthConfig struct {
+	JWTSecret       string        `envconfig:"JWT_SECRET" default:""`
+	JWTDuration     time.Duration `envconfig:"JWT_DURATION" default:"24h"`
+	JWTIssuer       string        `envconfig:"JWT_ISSUER" default:"url-shortener"`
+	AdminAPIKey     string        `envconfig:"ADMIN_API_KEY" default:""`
+	EnableJWT       bool          `envconfig:"ENABLE_JWT" default:"true"`
+	EnableAPIKey    bool          `envconfig:"ENABLE_API_KEY" default:"true"`
+	RequireAuth     bool          `envconfig:"REQUIRE_AUTH" default:"true"`
 }
 
 // Load loads configuration from environment variables

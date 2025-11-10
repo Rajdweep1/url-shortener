@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -19,8 +21,10 @@ import (
 	"github.com/rajweepmondal/url-shortener/internal/middleware"
 	"github.com/rajweepmondal/url-shortener/internal/repository/postgres"
 	"github.com/rajweepmondal/url-shortener/internal/repository/redis"
+	"github.com/rajweepmondal/url-shortener/internal/router"
 	"github.com/rajweepmondal/url-shortener/internal/service"
 	"github.com/rajweepmondal/url-shortener/internal/utils"
+	"github.com/rajweepmondal/url-shortener/pkg/auth"
 	"github.com/rajweepmondal/url-shortener/pkg/ratelimiter"
 	pb "github.com/rajweepmondal/url-shortener/proto/gen/go/url_shortener/v1"
 )
@@ -75,6 +79,21 @@ func main() {
 		cfg.App.CacheTTL,
 	)
 
+	// Initialize authentication manager
+	authConfig := auth.AuthConfig{
+		JWTSecret:    cfg.Auth.JWTSecret,
+		JWTDuration:  cfg.Auth.JWTDuration,
+		JWTIssuer:    cfg.Auth.JWTIssuer,
+		AdminAPIKey:  cfg.Auth.AdminAPIKey,
+		EnableJWT:    cfg.Auth.EnableJWT,
+		EnableAPIKey: cfg.Auth.EnableAPIKey,
+	}
+
+	authManager, err := auth.NewAuthManager(authConfig)
+	if err != nil {
+		logger.Fatal("Failed to initialize auth manager", zap.Error(err))
+	}
+
 	// Initialize rate limiter
 	rateLimiterConfig := ratelimiter.Config{
 		Strategy: ratelimiter.StrategySlidingWindow,
@@ -84,29 +103,65 @@ func main() {
 	rateLimiter := ratelimiter.New(rateLimitRepo, rateLimiterConfig)
 	rateLimitMiddleware := ratelimiter.NewMiddleware(rateLimiter)
 
-	// Initialize gRPC server
-	server := initGRPCServer(logger, rateLimitMiddleware)
+	// Initialize authentication middleware
+	authMiddleware := middleware.NewAuthMiddleware(authManager, logger, cfg.Auth.RequireAuth)
 
-	// Register services
+	// Initialize gRPC server
+	grpcServer := initGRPCServer(logger, rateLimitMiddleware, authMiddleware)
+
+	// Register gRPC services
 	urlHandler := grpcHandler.NewURLHandler(urlService)
-	pb.RegisterURLShortenerServiceServer(server, urlHandler)
+	pb.RegisterURLShortenerServiceServer(grpcServer, urlHandler)
 
 	// Enable reflection for development
-	reflection.Register(server)
+	reflection.Register(grpcServer)
 
-	// Start server
-	listener, err := net.Listen("tcp", ":"+cfg.Server.Port)
+	// Initialize HTTP router
+	httpRouter := router.New(urlService, logger, rateLimitMiddleware, authMiddleware)
+
+	// Calculate ports
+	grpcPort := cfg.Server.Port
+	httpPortInt, _ := strconv.Atoi(grpcPort)
+	httpPort := strconv.Itoa(httpPortInt + 1) // HTTP on port+1
+
+	// Start gRPC server
+	grpcListener, err := net.Listen("tcp", ":"+grpcPort)
 	if err != nil {
-		logger.Fatal("Failed to listen", zap.Error(err))
+		logger.Fatal("Failed to listen for gRPC", zap.Error(err))
 	}
 
-	// Start server in a goroutine
+	// Start HTTP server
+	httpServer := &http.Server{
+		Addr:         ":" + httpPort,
+		Handler:      httpRouter.Handler(),
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
+
+	// Start gRPC server in a goroutine
 	go func() {
-		logger.Info("gRPC server starting", zap.String("address", listener.Addr().String()))
-		if err := server.Serve(listener); err != nil {
-			logger.Fatal("Failed to serve", zap.Error(err))
+		logger.Info("gRPC server starting",
+			zap.String("address", grpcListener.Addr().String()),
+			zap.String("port", grpcPort))
+		if err := grpcServer.Serve(grpcListener); err != nil {
+			logger.Fatal("Failed to serve gRPC", zap.Error(err))
 		}
 	}()
+
+	// Start HTTP server in a goroutine
+	go func() {
+		logger.Info("HTTP server starting",
+			zap.String("address", httpServer.Addr),
+			zap.String("port", httpPort))
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Fatal("Failed to serve HTTP", zap.Error(err))
+		}
+	}()
+
+	// Log available routes
+	routes := httpRouter.GetRoutes()
+	logger.Info("HTTP routes registered", zap.Strings("routes", routes))
 
 	// Wait for interrupt signal to gracefully shutdown the server
 	quit := make(chan os.Signal, 1)
@@ -119,22 +174,29 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.Server.GracefulTimeout)
 	defer cancel()
 
-	// Stop accepting new connections and close existing ones
-	server.GracefulStop()
+	// Shutdown HTTP server
+	logger.Info("Shutting down HTTP server...")
+	if err := httpServer.Shutdown(ctx); err != nil {
+		logger.Error("HTTP server shutdown error", zap.Error(err))
+	}
+
+	// Shutdown gRPC server
+	logger.Info("Shutting down gRPC server...")
+	grpcServer.GracefulStop()
 
 	// Wait for shutdown to complete or timeout
 	done := make(chan struct{})
 	go func() {
-		server.Stop()
+		grpcServer.Stop()
 		close(done)
 	}()
 
 	select {
 	case <-done:
-		logger.Info("Server shutdown completed")
+		logger.Info("Servers stopped gracefully")
 	case <-ctx.Done():
-		logger.Warn("Server shutdown timed out")
-		server.Stop()
+		logger.Warn("Server shutdown timeout exceeded")
+		grpcServer.Stop()
 	}
 }
 
@@ -166,14 +228,14 @@ func initLogger(cfg config.LogConfig) (*zap.Logger, error) {
 }
 
 // initGRPCServer initializes the gRPC server with middleware
-func initGRPCServer(logger *zap.Logger, rateLimitMiddleware *ratelimiter.Middleware) *grpc.Server {
+func initGRPCServer(logger *zap.Logger, rateLimitMiddleware *ratelimiter.Middleware, authMiddleware *middleware.AuthMiddleware) *grpc.Server {
 	// Create unary interceptors
 	unaryInterceptors := []grpc.UnaryServerInterceptor{
 		middleware.RecoveryInterceptor(logger),
 		middleware.LoggingInterceptor(logger),
 		middleware.ValidationInterceptor(),
 		middleware.RateLimitInterceptor(rateLimitMiddleware),
-		middleware.AuthInterceptor(),
+		authMiddleware.GRPCAuthInterceptor(),
 		middleware.MetricsInterceptor(),
 	}
 
